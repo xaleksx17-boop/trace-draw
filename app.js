@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '1.1.1';
+const APP_VERSION = '1.2.0';
 /* Обводилка — v1.1
    Камера во весь экран + картинка поверх с прозрачностью.
    Жесты: 1 палец — сдвиг, 2 пальца — масштаб и поворот. Замок блокирует жесты. */
@@ -8,7 +8,8 @@ const $ = (id) => document.getElementById(id);
 
 // ---------- Настройки (localStorage) ----------
 const DEFAULTS = { filter: 'original', bright: 0, contrast: 0, thresh: 60, thick: 1,
-  color: '#ff2a2a', zoomDef: 1, mirror: false, opacity: 50, gridOn: false, gridN: 6, gridColor: '#2a7bff' };
+  color: '#ff2a2a', zoomDef: 1, mirror: false, opacity: 50, gridOn: false, gridN: 6, gridColor: '#2a7bff',
+  blinkOn: false, blinkSec: 5, blinkHide: 1, recSpeed: 10, recOverlay: false };
 let S = { ...DEFAULTS };
 try { Object.assign(S, JSON.parse(localStorage.getItem('td.settings') || '{}')); } catch (e) {}
 function saveSettings() { try { localStorage.setItem('td.settings', JSON.stringify(S)); } catch (e) {} }
@@ -51,6 +52,7 @@ const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k]]));
 
 let srcImage = null;   // картинка текущего проекта
 let cur = null;        // текущий проект
+let mode = 'camera';   // 'camera' | 'light' (световой стол)
 const MAX_SIDE = 1600;
 
 function blobToImage(blob) {
@@ -85,7 +87,7 @@ async function renderProjects() {
     el.className = 'proj';
     el.innerHTML = `<img alt=""><div class="proj-info"><div class="proj-name"></div>
       <div class="proj-date"></div></div>
-      <div class="proj-acts"><button data-a="edit" title="Обрезать">✂️</button>
+      <div class="proj-acts"><button data-a="light" title="Световой стол">💡</button><button data-a="edit" title="Обрезать">✂️</button>
       <button data-a="rename" title="Переименовать">✏️</button><button data-a="del" title="Удалить">🗑️</button></div>`;
     el.querySelector('img').src = p.thumb;
     el.querySelector('.proj-name').textContent = p.name;
@@ -98,6 +100,8 @@ async function renderProjects() {
       } else if (a === 'rename') {
         const n = prompt('Название', p.name);
         if (n && n.trim()) { p.name = n.trim(); await DB.put('projects', p); renderProjects(); }
+      } else if (a === 'light') {
+        openProject(p, 'light');
       } else if (a === 'edit') {
         openEditor(p.orig || p.blob, p);
       } else openProject(p);
@@ -502,6 +506,7 @@ $('camBtn').addEventListener('click', async () => {
   const next = list[(i + 1) % list.length];
   await startCamera(next.deviceId);
   rememberCam();
+  sheet.classList.remove('open');
   flashToast(`Камера ${list.indexOf(next) + 1} из ${list.length}${caps().torch ? ' · есть фонарик' : ''}`);
 });
 
@@ -511,7 +516,7 @@ async function requestWakeLock() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && $('trace').classList.contains('active')) {
     requestWakeLock();
-    if (!stream || !track || track.readyState === 'ended') startCamera();
+    if (mode === 'camera' && (!stream || !track || track.readyState === 'ended')) startCamera();
   }
 });
 
@@ -519,10 +524,10 @@ document.addEventListener('visibilitychange', () => {
 function show(id) {
   document.querySelectorAll('.screen').forEach((s) => s.classList.toggle('active', s.id === id));
 }
-async function openProject(p) {
+async function openProject(p, m = 'camera') {
   let img;
   try { img = await blobToImage(p.blob); } catch (e) { flashToast('Не удалось открыть картинку проекта'); return; }
-  cur = p; srcImage = img;
+  cur = p; srcImage = img; mode = m;
   for (const k of PROJECT_KEYS) if (p[k] !== undefined) S[k] = p[k];
   syncSettingsUI();
   try { await document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }); } catch (e) {}
@@ -531,14 +536,19 @@ async function openProject(p) {
   if (p.T) Object.assign(T, p.T); else fitImage();
   applyTransform();
   overlay.style.opacity = S.opacity / 100;
-  overlay.classList.remove('hidden'); $('eyeBtn').classList.remove('off');
+  manualHidden = false; overlay.classList.remove('hidden'); $('eyeBtn').classList.remove('off');
+  applyMode();
   $('opacity').value = S.opacity;
   p.updated = Date.now(); DB.put('projects', p).catch(() => {});
-  await startCamera();
   requestWakeLock();
+  startBlink();
+  if (mode === 'light') { stopCamera(); lightHint(); } else await startCamera();
 }
 
-$('backBtn').addEventListener('click', () => {
+$('backBtn').addEventListener('click', async () => {
+  if (rec) await stopRec();
+  stopBlink();
+  sheet.classList.remove('open');
   stopCamera();
   try { wakeLock?.release(); } catch (e) {}
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -553,8 +563,9 @@ $('opacity').addEventListener('input', (e) => {
   S.opacity = +e.target.value; overlay.style.opacity = S.opacity / 100; saveSettings(); saveProject();
 });
 $('eyeBtn').addEventListener('click', () => {
-  const hidden = overlay.classList.toggle('hidden');
-  $('eyeBtn').classList.toggle('off', hidden);
+  manualHidden = !manualHidden;
+  overlayVisible(!manualHidden);
+  $('eyeBtn').classList.toggle('off', manualHidden);
 });
 function setLocked(v) {
   locked = v;
@@ -563,6 +574,11 @@ function setLocked(v) {
   $('lockBadge').classList.toggle('show', v);
   $('size').disabled = v;
   pointers.clear(); gPrev = null;
+  // световой стол: блокируем весь экран, панель прячем
+  const block = v && mode === 'light';
+  $('trace').classList.toggle('blocked', block);
+  if (block) { $('toolbar').classList.add('collapsed'); $('showBarBtn').classList.remove('show'); }
+  else if (!v && $('trace').classList.contains('light')) { $('toolbar').classList.remove('collapsed'); }
 }
 $('lockBtn').addEventListener('click', () => setLocked(!locked));
 $('size').addEventListener('input', (e) => {
@@ -576,6 +592,7 @@ $('vSize').addEventListener('dblclick', () => { if (!locked) { T.s = fitScale();
 $('resetBtn').addEventListener('click', () => {
   if (locked) { flashToast('Сначала снимите замок'); return; }
   fitImage(); applyTransform(); saveTransform();
+  sheet.classList.remove('open');
 });
 $('hideBarBtn').addEventListener('click', () => { $('toolbar').classList.add('collapsed'); $('showBarBtn').classList.add('show'); });
 $('showBarBtn').addEventListener('click', () => { $('toolbar').classList.remove('collapsed'); $('showBarBtn').classList.remove('show'); });
@@ -602,6 +619,11 @@ function syncSettingsUI() {
   $('sGridOn').checked = S.gridOn; sheet.classList.toggle('grid', S.gridOn);
   $('sGridN').value = S.gridN; $('vGridN').textContent = S.gridN;
   $('sGridColor').value = S.gridColor;
+  $('sBlinkOn').checked = S.blinkOn; sheet.classList.toggle('blink', S.blinkOn);
+  $('sBlinkSec').value = S.blinkSec; $('vBlinkSec').textContent = S.blinkSec;
+  $('sBlinkHide').value = S.blinkHide; $('vBlinkHide').textContent = S.blinkHide;
+  document.querySelectorAll('#speedSeg button').forEach((b) => b.classList.toggle('on', +b.dataset.s === +S.recSpeed));
+  $('sRecOverlay').checked = S.recOverlay;
 }
 let reprocessTimer = 0;
 function changed(reprocess = true) {
@@ -627,6 +649,12 @@ $('sMirror').addEventListener('change', (e) => { S.mirror = e.target.checked; ch
 $('sGridOn').addEventListener('change', (e) => { S.gridOn = e.target.checked; changed(); });
 $('sGridN').addEventListener('input', (e) => { S.gridN = +e.target.value; changed(); });
 $('sGridColor').addEventListener('input', (e) => { S.gridColor = e.target.value; changed(); });
+$('sBlinkOn').addEventListener('change', (e) => { S.blinkOn = e.target.checked; changed(false); startBlink(); });
+$('sBlinkSec').addEventListener('input', (e) => { S.blinkSec = +e.target.value; changed(false); startBlink(); });
+$('sBlinkHide').addEventListener('input', (e) => { S.blinkHide = +e.target.value; changed(false); startBlink(); });
+document.querySelectorAll('#speedSeg button').forEach((b) =>
+  b.addEventListener('click', () => { S.recSpeed = +b.dataset.s; changed(false); }));
+$('sRecOverlay').addEventListener('change', (e) => { S.recOverlay = e.target.checked; changed(false); });
 $('gridBtn').addEventListener('click', () => { S.gridOn = !S.gridOn; changed(); $('gridBtn').classList.toggle('on', S.gridOn); });
 $('resetFilters').addEventListener('click', () => {
   Object.assign(S, { filter: 'original', bright: 0, contrast: 0, thresh: 60, thick: 1, color: '#ff2a2a' });
@@ -635,6 +663,189 @@ $('resetFilters').addEventListener('click', () => {
 syncSettingsUI();
 
 window.addEventListener('resize', () => applyTransform());
+
+
+// ---------- Мигание картинки ----------
+let blinkTimer = 0, blinkHideTimer = 0, manualHidden = false;
+function overlayVisible(v) { overlay.classList.toggle('hidden', !v); }
+function startBlink() {
+  stopBlink();
+  if (!S.blinkOn || !$('trace').classList.contains('active')) return;
+  blinkTimer = setInterval(() => {
+    if (manualHidden) return;
+    overlayVisible(false);
+    blinkHideTimer = setTimeout(() => { if (!manualHidden) overlayVisible(true); }, S.blinkHide * 1000);
+  }, Math.max(S.blinkSec, S.blinkHide + 0.5) * 1000);
+}
+function stopBlink() {
+  clearInterval(blinkTimer); clearTimeout(blinkHideTimer);
+  if (!manualHidden) overlayVisible(true);
+}
+
+// ---------- Режим «Световой стол» ----------
+function applyMode() {
+  const light = mode === 'light';
+  $('trace').classList.toggle('light', light);
+  $('modeBtn').textContent = light ? '📷 Режим камеры' : '💡 Световой стол';
+  sheet.classList.toggle('light', light);
+}
+$('modeBtn').addEventListener('click', async () => {
+  if (rec) await stopRec();
+  mode = mode === 'light' ? 'camera' : 'light';
+  applyMode();
+  sheet.classList.remove('open');
+  if (mode === 'light') { stopCamera(); lightHint(); } else await startCamera();
+});
+function lightHint() {
+  flashToast('💡 Выкрутите яркость экрана на максимум, положите лист на экран и нажмите 🔒', 4500);
+}
+// В световом столе замок закрывает весь экран; разблокировка — удержание в левом верхнем углу
+let unlockTimer = 0;
+$('unlockCorner').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  $('unlockCorner').classList.add('holding');
+  unlockTimer = setTimeout(() => { $('unlockCorner').classList.remove('holding'); setLocked(false); }, 2000);
+});
+['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => $('unlockCorner').addEventListener(ev, () => {
+  clearTimeout(unlockTimer); $('unlockCorner').classList.remove('holding');
+}));
+$('blocker').addEventListener('contextmenu', (e) => e.preventDefault());
+
+// ---------- Сохранение файлов ----------
+function stamp() {
+  const d = new Date(), p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+}
+function download(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+
+// ---------- Фото готового рисунка ----------
+$('photoBtn').addEventListener('click', async () => {
+  if (!track || !video.videoWidth) { flashToast('Камера ещё не готова'); return; }
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth; c.height = video.videoHeight;
+  c.getContext('2d').drawImage(video, 0, 0);
+  const blob = await canvasToBlob(c, 'image/jpeg', 0.92);
+  download(blob, `Обводилка_фото_${stamp()}.jpg`);
+  flashToast('📸 Фото сохранено в «Загрузки»');
+});
+
+// ---------- Запись видео / таймлапс ----------
+let rec = null;
+const even = (v) => Math.max(2, Math.round(v / 2) * 2);
+
+// Нарисовать картинку поверх кадра так же, как она лежит на экране
+function drawOverlayInto(ctx, W, H, vw, vh) {
+  if (!prepared || overlay.classList.contains('hidden')) return;
+  const cssZoom = hwZoom ? 1 : Math.max(1, +$('zoom').value || 1);
+  const cover = Math.max(innerWidth / vw, innerHeight / vh) * cssZoom; // экранных px на 1 px кадра
+  const k = W / vw;
+  const m = S.mirror ? -1 : 1;
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.scale(k / cover, k / cover);
+  ctx.translate(T.x, T.y); ctx.rotate(T.r); ctx.scale(T.s * m, T.s);
+  ctx.translate(-prepared.w / 2, -prepared.h / 2);
+  ctx.globalAlpha = S.opacity / 100;
+  ctx.drawImage(overlay, 0, 0);
+  ctx.restore();
+}
+
+async function startRec() {
+  if (!track || !video.videoWidth) { flashToast('Камера ещё не готова'); return; }
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const k = Math.min(1, 1280 / Math.max(vw, vh));
+  const W = even(vw * k), H = even(vh * k);
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  const draw = () => { ctx.drawImage(video, 0, 0, W, H); if (S.recOverlay) drawOverlayInto(ctx, W, H, vw, vh); };
+  let speed = S.recSpeed;
+  const r = { start: Date.now(), speed, frames: 0 };
+
+  let codec = null;
+  if (window.VideoEncoder && window.Mp4Muxer) {
+    for (const cand of ['avc1.42001f', 'avc1.4d0028', 'avc1.640028']) {
+      try {
+        const sup = await VideoEncoder.isConfigSupported({ codec: cand, width: W, height: H, bitrate: 6e6, framerate: 30 });
+        if (sup.supported) { codec = cand; break; }
+      } catch (e) {}
+    }
+  }
+  if (codec) {
+    // Своя частота кадров → настоящий таймлапс: 1 кадр в видео = speed/30 с реального времени
+    const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(),
+      video: { codec: 'avc', width: W, height: H }, fastStart: 'in-memory' });
+    const enc = new VideoEncoder({ output: (ch, meta) => muxer.addVideoChunk(ch, meta),
+      error: (e) => { flashToast('Ошибка записи: ' + e.message, 4000); } });
+    enc.configure({ codec, width: W, height: H, bitrate: 6e6, framerate: 30 });
+    r.kind = 'mp4'; r.muxer = muxer; r.enc = enc;
+    r.timer = setInterval(() => {
+      if (enc.encodeQueueSize > 4) return;
+      draw();
+      const f = new VideoFrame(c, { timestamp: r.frames * 1e6 / 30, duration: 1e6 / 30 });
+      enc.encode(f, { keyFrame: r.frames % 60 === 0 }); f.close();
+      r.frames++;
+    }, 1000 / 30 * speed);
+  } else if (window.MediaRecorder && c.captureStream) {
+    // запасной вариант: обычная запись без ускорения
+    speed = r.speed = 1;
+    const stream = c.captureStream(30);
+    const type = ['video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find((t) => MediaRecorder.isTypeSupported(t)) || '';
+    const mr = new MediaRecorder(stream, type ? { mimeType: type, videoBitsPerSecond: 6e6 } : {});
+    r.kind = 'mr'; r.mr = mr; r.chunks = []; r.type = mr.mimeType || 'video/webm';
+    mr.ondataavailable = (e) => e.data.size && r.chunks.push(e.data);
+    mr.start(1000);
+    r.timer = setInterval(draw, 1000 / 30);
+    if (S.recSpeed !== 1) flashToast('Ускоренная запись не поддерживается — пишу ×1', 3500);
+  } else { flashToast('Браузер не умеет записывать видео'); return; }
+
+  rec = r;
+  $('recBtn').classList.add('on'); $('recBtn').textContent = '⏹️';
+  $('recInfo').textContent = speed > 1 ? `×${speed}` : '';
+  $('recBadge').classList.add('show');
+  r.clock = setInterval(() => {
+    const s = Math.floor((Date.now() - r.start) / 1000);
+    $('recTime').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  }, 500);
+}
+
+async function stopRec() {
+  const r = rec; if (!r) return;
+  rec = null;
+  clearInterval(r.timer); clearInterval(r.clock);
+  $('recBtn').classList.remove('on'); $('recBtn').textContent = '⏺️';
+  $('recBadge').classList.remove('show'); $('recTime').textContent = '00:00';
+  let blob = null, ext = 'mp4';
+  try {
+    if (r.kind === 'mp4') {
+      if (!r.frames) { flashToast('Слишком короткая запись'); return; }
+      await r.enc.flush(); r.enc.close(); r.muxer.finalize();
+      blob = new Blob([r.muxer.target.buffer], { type: 'video/mp4' });
+    } else {
+      await new Promise((res) => { r.mr.onstop = res; r.mr.stop(); });
+      blob = new Blob(r.chunks, { type: r.type });
+      ext = r.type.includes('mp4') ? 'mp4' : 'webm';
+    }
+  } catch (e) { flashToast('Не удалось сохранить видео'); return; }
+  download(blob, `Обводилка_видео_${stamp()}.${ext}`);
+  flashToast('🎬 Видео сохранено в «Загрузки»', 3000);
+}
+$('recBtn').addEventListener('click', () => (rec ? stopRec() : startRec()));
+
+// ---------- Картинка, присланная через «Поделиться» ----------
+(async () => {
+  if (!/[?&]shared=1/.test(location.search)) return;
+  history.replaceState(null, '', location.pathname);
+  try {
+    const c = await caches.open('td-share');
+    const r = await c.match('shared-image');
+    if (r) { const b = await r.blob(); await c.delete('shared-image'); openEditor(b, null); }
+  } catch (e) {}
+})();
 
 $('ver').textContent = 'версия ' + APP_VERSION;
 

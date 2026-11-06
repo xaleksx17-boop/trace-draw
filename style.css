@@ -145,3 +145,22 @@ input[type=range]:disabled { opacity: .35; }
 
 .grid-only { display: none; }
 .sheet.grid .grid-only { display: flex; }
+
+/* v1.2 */
+#trace.light, #trace.light #stage { background: #fff; }
+#trace.light video { display: none; }
+#trace.light .cam-only { display: none; }
+.sheet.light .cam-only-h { display: none; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sheet .btn { width: 100%; }
+.blink-only { display: none; }
+.sheet.blink .blink-only { display: flex; }
+.badge.rec { background: #d6262b; color: #fff; top: calc(46px + env(safe-area-inset-top)); }
+#lockBadge + .badge.rec { }
+#blocker { position: absolute; inset: 0; z-index: 5; display: none; touch-action: none; }
+#trace.blocked #blocker { display: block; }
+#trace.blocked #lockBadge { display: none; }
+#unlockCorner { position: absolute; left: 0; top: 0; width: 96px; height: 96px; border-bottom-right-radius: 96px;
+  background: rgba(0,0,0,.06); display: flex; align-items: flex-start; justify-content: flex-start; }
+#unlockCorner span { font-size: 10px; color: rgba(0,0,0,.35); padding: 10px 0 0 8px; width: 70px; line-height: 1.2; }
+#unlockCorner.holding { background: rgba(255,122,26,.5); transition: background 2s; }

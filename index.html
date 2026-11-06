@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=111">
+<link rel="stylesheet" href="style.css?v=120">
 </head>
 <body>
 
@@ -74,6 +74,8 @@
   </div>
 
   <div id="lockBadge" class="badge">🔒 Заблокировано</div>
+  <div id="recBadge" class="badge rec">⏺ <span id="recTime">00:00</span> <span id="recInfo"></span></div>
+  <div id="blocker"><div id="unlockCorner"><span>Держите 2 с, чтобы разблокировать</span></div></div>
   <div id="toast" class="toast"></div>
 
   <div id="toolbar">
@@ -84,7 +86,7 @@
       <label class="slider"><span>Размер <b id="vSize">100%</b></span>
         <input type="range" id="size" min="0" max="1000" value="500">
       </label>
-      <label class="slider" id="zoomRow"><span>Зум камеры</span>
+      <label class="slider cam-only" id="zoomRow"><span>Зум камеры</span>
         <input type="range" id="zoom" min="1" max="5" step="0.05" value="1">
       </label>
     </div>
@@ -92,10 +94,10 @@
       <button class="tbtn" id="backBtn" title="Назад">⬅️</button>
       <button class="tbtn" id="eyeBtn" title="Показать/скрыть картинку">👁️</button>
       <button class="tbtn" id="lockBtn" title="Замок">🔓</button>
-      <button class="tbtn" id="torchBtn" title="Фонарик">🔦</button>
-      <button class="tbtn" id="camBtn" title="Сменить камеру">🔄</button>
       <button class="tbtn" id="gridBtn" title="Сетка">#️⃣</button>
-      <button class="tbtn" id="resetBtn" title="Сбросить положение">🎯</button>
+      <button class="tbtn cam-only" id="recBtn" title="Запись видео">⏺️</button>
+      <button class="tbtn cam-only" id="photoBtn" title="Фото рисунка">📸</button>
+      <button class="tbtn cam-only" id="torchBtn" title="Фонарик">🔦</button>
       <button class="tbtn" id="settingsBtn" title="Настройки">⚙️</button>
       <button class="tbtn" id="hideBarBtn" title="Свернуть панель">⬇️</button>
     </div>
@@ -137,7 +139,30 @@
     <label class="field grid-only"><span>Цвет сетки</span>
       <input type="color" id="sGridColor" value="#2a7bff"></label>
 
-    <h3>Камера</h3>
+    <h3>Режим</h3>
+    <div class="two">
+      <button class="btn" id="modeBtn">💡 Световой стол</button>
+      <button class="btn" id="resetBtn">🎯 Картинку в центр</button>
+    </div>
+
+    <h3>Мигание картинки</h3>
+    <label class="check"><input type="checkbox" id="sBlinkOn"> Периодически скрывать картинку, чтобы видеть свой рисунок</label>
+    <label class="field blink-only"><span>Скрывать каждые <b id="vBlinkSec"></b> с</span>
+      <input type="range" id="sBlinkSec" min="2" max="15" value="5"></label>
+    <label class="field blink-only"><span>На сколько скрывать <b id="vBlinkHide"></b> с</span>
+      <input type="range" id="sBlinkHide" min="0.5" max="3" step="0.5" value="1"></label>
+
+    <h3 class="cam-only-h">Запись видео</h3>
+    <div class="seg cam-only-h" id="speedSeg">
+      <button data-s="1">×1</button>
+      <button data-s="5">×5</button>
+      <button data-s="10">×10</button>
+      <button data-s="30">×30</button>
+    </div>
+    <label class="check cam-only-h"><input type="checkbox" id="sRecOverlay"> Записывать вместе с картинкой</label>
+
+    <h3 class="cam-only-h">Камера</h3>
+    <button class="btn cam-only-h" id="camBtn">🔄 Сменить камеру</button>
     <label class="field"><span>Увеличение по умолчанию <b id="vZoomDef"></b></span>
       <input type="range" id="sZoomDef" min="1" max="5" step="0.1" value="1"></label>
     <label class="check"><input type="checkbox" id="sMirror"> Отразить картинку зеркально</label>
@@ -147,6 +172,7 @@
   </div>
 </div>
 
-<script src="app.js?v=111"></script>
+<script src="lib/mp4-muxer.js?v=120"></script>
+<script src="app.js?v=120"></script>
 </body>
 </html>
