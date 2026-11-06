@@ -1,5 +1,5 @@
 'use strict';
-/* Обводилка — MVP
+/* Обводилка — v1.1
    Камера во весь экран + картинка поверх с прозрачностью.
    Жесты: 1 палец — сдвиг, 2 пальца — масштаб и поворот. Замок блокирует жесты. */
 
@@ -7,76 +7,239 @@ const $ = (id) => document.getElementById(id);
 
 // ---------- Настройки (localStorage) ----------
 const DEFAULTS = { filter: 'original', bright: 0, contrast: 0, thresh: 60, thick: 1,
-  color: '#ff2a2a', zoomDef: 1, mirror: false, opacity: 50 };
+  color: '#ff2a2a', zoomDef: 1, mirror: false, opacity: 50, gridOn: false, gridN: 6, gridColor: '#2a7bff' };
 let S = { ...DEFAULTS };
 try { Object.assign(S, JSON.parse(localStorage.getItem('td.settings') || '{}')); } catch (e) {}
 function saveSettings() { try { localStorage.setItem('td.settings', JSON.stringify(S)); } catch (e) {} }
 
-// ---------- Хранение последней картинки (IndexedDB) ----------
+// ---------- База (IndexedDB): проекты ----------
 const DB = {
+  db: null,
   open() {
+    if (this.db) return Promise.resolve(this.db);
     return new Promise((res, rej) => {
-      const r = indexedDB.open('trace-draw', 1);
-      r.onupgradeneeded = () => r.result.createObjectStore('kv');
-      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+      const r = indexedDB.open('trace-draw', 2);
+      r.onupgradeneeded = () => {
+        const db = r.result;
+        if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+        if (!db.objectStoreNames.contains('projects')) db.createObjectStore('projects', { keyPath: 'id' });
+      };
+      r.onsuccess = () => { this.db = r.result; res(this.db); };
+      r.onerror = () => rej(r.error);
     });
   },
-  async put(key, val) {
-    try { const db = await this.open();
-      await new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite');
-        t.objectStore('kv').put(val, key); t.oncomplete = res; t.onerror = () => rej(t.error); });
-    } catch (e) {}
+  async req(store, mode, fn) {
+    const db = await this.open();
+    return new Promise((res, rej) => {
+      const t = db.transaction(store, mode);
+      const q = fn(t.objectStore(store));
+      t.oncomplete = () => res(q ? q.result : undefined);
+      t.onerror = () => rej(t.error);
+    });
   },
-  async get(key) {
-    try { const db = await this.open();
-      return await new Promise((res) => { const q = db.transaction('kv').objectStore('kv').get(key);
-        q.onsuccess = () => res(q.result); q.onerror = () => res(null); });
-    } catch (e) { return null; }
-  }
+  get: (s, k) => DB.req(s, 'readonly', (o) => o.get(k)),
+  put: (s, v, k) => DB.req(s, 'readwrite', (o) => (k === undefined ? o.put(v) : o.put(v, k))),
+  del: (s, k) => DB.req(s, 'readwrite', (o) => o.delete(k)),
+  all: (s) => DB.req(s, 'readonly', (o) => o.getAll())
 };
 
-// ---------- Загрузка картинки ----------
-let srcImage = null;       // ImageBitmap/Image исходной картинки (уменьшенной)
-let srcBlob = null;
+// Настройки картинки, которые хранятся в каждом проекте отдельно
+const PROJECT_KEYS = ['filter', 'bright', 'contrast', 'thresh', 'thick', 'color', 'mirror', 'opacity',
+  'gridOn', 'gridN', 'gridColor'];
+const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k]]));
+
+let srcImage = null;   // картинка текущего проекта
+let cur = null;        // текущий проект
 const MAX_SIDE = 1600;
 
-async function loadBlob(blob, persist = true) {
-  if (!blob) return;
-  try {
-    const url = URL.createObjectURL(blob);
-    const img = new Image();
-    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-    srcImage = img; srcBlob = blob;
-    $('previewImg').src = url;
-    $('preview').classList.add('has');
-    $('startBtn').disabled = false;
-    $('homeHint').textContent = `Картинка ${img.naturalWidth}×${img.naturalHeight}`;
-    if (persist) DB.put('last', blob);
-    prepared = null;
-  } catch (e) {
-    $('homeHint').textContent = 'Не удалось открыть картинку';
+function blobToImage(blob) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(blob), img = new Image();
+    img.onload = () => res(img); img.onerror = rej; img.src = url;
+  });
+}
+function canvasToBlob(c, type, q) { return new Promise((res) => c.toBlob(res, type, q)); }
+function makeThumb(src) {
+  const w = src.naturalWidth || src.width, h = src.naturalHeight || src.height;
+  const k = 240 / Math.max(w, h), c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+  c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.75);
+}
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+function defaultName() {
+  return 'Рисунок ' + new Date().toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+// ---------- Главный экран: список проектов ----------
+async function renderProjects() {
+  let list = [];
+  try { list = await DB.all('projects'); } catch (e) {}
+  list.sort((a, b) => b.updated - a.updated);
+  const box = $('projects');
+  box.innerHTML = '';
+  $('projectsEmpty').style.display = list.length ? 'none' : 'block';
+  for (const p of list) {
+    const el = document.createElement('div');
+    el.className = 'proj';
+    el.innerHTML = `<img alt=""><div class="proj-info"><div class="proj-name"></div>
+      <div class="proj-date"></div></div>
+      <div class="proj-acts"><button data-a="edit" title="Обрезать">✂️</button>
+      <button data-a="rename" title="Переименовать">✏️</button><button data-a="del" title="Удалить">🗑️</button></div>`;
+    el.querySelector('img').src = p.thumb;
+    el.querySelector('.proj-name').textContent = p.name;
+    el.querySelector('.proj-date').textContent = new Date(p.updated).toLocaleString('ru-RU',
+      { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+    el.addEventListener('click', async (e) => {
+      const a = e.target.closest('button')?.dataset.a;
+      if (a === 'del') {
+        if (confirm(`Удалить «${p.name}»?`)) { await DB.del('projects', p.id); renderProjects(); }
+      } else if (a === 'rename') {
+        const n = prompt('Название', p.name);
+        if (n && n.trim()) { p.name = n.trim(); await DB.put('projects', p); renderProjects(); }
+      } else if (a === 'edit') {
+        openEditor(p.orig || p.blob, p);
+      } else openProject(p);
+    });
+    box.appendChild(el);
   }
 }
 
-$('pickCamera').addEventListener('change', (e) => loadBlob(e.target.files[0]));
-$('pickGallery').addEventListener('change', (e) => loadBlob(e.target.files[0]));
+function setHint(t) { $('homeHint').textContent = t || ''; }
+const onPick = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) openEditor(f, null); };
+$('pickCamera').addEventListener('change', onPick);
+$('pickGallery').addEventListener('change', onPick);
 $('pasteBtn').addEventListener('click', async () => {
   try {
     const items = await navigator.clipboard.read();
     for (const it of items) {
       const type = it.types.find((t) => t.startsWith('image/'));
-      if (type) { await loadBlob(await it.getType(type)); return; }
+      if (type) { openEditor(await it.getType(type), null); return; }
     }
-    $('homeHint').textContent = 'В буфере нет картинки';
+    setHint('В буфере нет картинки');
   } catch (e) {
-    $('homeHint').textContent = 'Браузер не дал доступ к буферу — используйте «Из галереи»';
+    setHint('Браузер не дал доступ к буферу — используйте «Из галереи»');
   }
 });
 window.addEventListener('paste', (e) => {
   const f = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith('image/'));
-  if (f) loadBlob(f);
+  if (f && $('home').classList.contains('active')) openEditor(f, null);
 });
-DB.get('last').then((b) => { if (b) loadBlob(b, false); });
+
+// ---------- Редактор: поворот, отражение, обрезка ----------
+let ed = null;
+const edCanvas = $('edCanvas'), cropBox = $('cropBox');
+
+async function openEditor(blob, project) {
+  let img;
+  try { img = await blobToImage(blob); } catch (e) { setHint('Не удалось открыть картинку'); return; }
+  setHint('');
+  const e = project?.edit || {};
+  ed = { img, blob, project, rot: e.rot || 0, flip: !!e.flip, crop: e.crop ? { ...e.crop } : null };
+  buildEdSrc();
+  show('editor');
+  layoutEditor();
+}
+function buildEdSrc() {
+  const iw = ed.img.naturalWidth, ih = ed.img.naturalHeight;
+  const k = Math.min(1, 2400 / Math.max(iw, ih));
+  const w0 = Math.round(iw * k), h0 = Math.round(ih * k);
+  const odd = ed.rot % 2 === 1;
+  const c = document.createElement('canvas');
+  c.width = odd ? h0 : w0; c.height = odd ? w0 : h0;
+  const ctx = c.getContext('2d');
+  ctx.translate(c.width / 2, c.height / 2);
+  ctx.rotate(ed.rot * Math.PI / 2);
+  if (ed.flip) ctx.scale(-1, 1);
+  ctx.drawImage(ed.img, -w0 / 2, -h0 / 2, w0, h0);
+  ed.src = c;
+  if (!ed.crop) ed.crop = { x: 0, y: 0, w: 1, h: 1 };
+}
+function layoutEditor() {
+  if (!ed || !$('editor').classList.contains('active')) return;
+  const st = $('edStage').getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  edCanvas.width = st.width * dpr; edCanvas.height = st.height * dpr;
+  edCanvas.style.width = st.width + 'px'; edCanvas.style.height = st.height + 'px';
+  const cw = ed.src.width, ch = ed.src.height;
+  ed.k = Math.min(st.width / cw, st.height / ch) * 0.94;
+  ed.ox = (st.width - cw * ed.k) / 2; ed.oy = (st.height - ch * ed.k) / 2;
+  const ctx = edCanvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, st.width, st.height);
+  ctx.drawImage(ed.src, ed.ox, ed.oy, cw * ed.k, ch * ed.k);
+  placeCrop();
+}
+function placeCrop() {
+  const cw = ed.src.width * ed.k, ch = ed.src.height * ed.k, c = ed.crop;
+  Object.assign(cropBox.style, { left: ed.ox + c.x * cw + 'px', top: ed.oy + c.y * ch + 'px',
+    width: c.w * cw + 'px', height: c.h * ch + 'px' });
+  $('edSize').textContent = `${Math.round(c.w * ed.src.width)}×${Math.round(c.h * ed.src.height)}`;
+}
+let cropDrag = null;
+cropBox.addEventListener('pointerdown', (e) => {
+  cropBox.setPointerCapture(e.pointerId);
+  cropDrag = { h: e.target.dataset.h || 'move', x: e.clientX, y: e.clientY, c: { ...ed.crop } };
+});
+cropBox.addEventListener('pointermove', (e) => {
+  if (!cropDrag) return;
+  const dx = (e.clientX - cropDrag.x) / (ed.src.width * ed.k), dy = (e.clientY - cropDrag.y) / (ed.src.height * ed.k);
+  const c0 = cropDrag.c, M = 0.05, cl = (v, a, b) => Math.max(a, Math.min(b, v));
+  const c = { ...c0 };
+  if (cropDrag.h === 'move') {
+    c.x = cl(c0.x + dx, 0, 1 - c0.w); c.y = cl(c0.y + dy, 0, 1 - c0.h);
+  } else {
+    if (cropDrag.h.includes('l')) { c.x = cl(c0.x + dx, 0, c0.x + c0.w - M); c.w = c0.x + c0.w - c.x; }
+    if (cropDrag.h.includes('r')) { c.w = cl(c0.w + dx, M, 1 - c0.x); }
+    if (cropDrag.h.includes('t')) { c.y = cl(c0.y + dy, 0, c0.y + c0.h - M); c.h = c0.y + c0.h - c.y; }
+    if (cropDrag.h.includes('b')) { c.h = cl(c0.h + dy, M, 1 - c0.y); }
+  }
+  ed.crop = c; placeCrop();
+});
+cropBox.addEventListener('pointerup', () => { cropDrag = null; });
+cropBox.addEventListener('pointercancel', () => { cropDrag = null; });
+
+$('edRotate').addEventListener('click', () => { ed.rot = (ed.rot + 1) % 4; ed.crop = null; buildEdSrc(); layoutEditor(); });
+$('edFlip').addEventListener('click', () => { ed.flip = !ed.flip; ed.crop = null; buildEdSrc(); layoutEditor(); });
+$('edFull').addEventListener('click', () => { ed.crop = { x: 0, y: 0, w: 1, h: 1 }; placeCrop(); });
+$('edCancel').addEventListener('click', () => { ed = null; show('home'); });
+$('edDone').addEventListener('click', async () => {
+  const c = ed.crop, sw = ed.src.width, sh = ed.src.height;
+  const ow = Math.max(1, Math.round(c.w * sw)), oh = Math.max(1, Math.round(c.h * sh));
+  const out = document.createElement('canvas'); out.width = ow; out.height = oh;
+  out.getContext('2d').drawImage(ed.src, Math.round(c.x * sw), Math.round(c.y * sh), ow, oh, 0, 0, ow, oh);
+  const type = ed.blob.type === 'image/png' ? 'image/png' : 'image/jpeg';
+  const blob = await canvasToBlob(out, type, 0.92);
+  const edit = { rot: ed.rot, flip: ed.flip, crop: { ...c } };
+  let p = ed.project;
+  if (p) {
+    Object.assign(p, { blob, edit, thumb: makeThumb(out), T: null, updated: Date.now() });
+  } else {
+    p = { id: newId(), name: defaultName(), created: Date.now(), updated: Date.now(),
+      orig: ed.blob, blob, edit, thumb: makeThumb(out), T: null, ...pick(S, PROJECT_KEYS) };
+  }
+  try { await DB.put('projects', p); } catch (e) { flashToast('Не удалось сохранить проект'); }
+  ed = null;
+  renderProjects();
+  openProject(p);
+});
+window.addEventListener('resize', () => layoutEditor());
+
+// Перенос картинки из прошлой версии (одна «последняя картинка») в проекты
+(async () => {
+  try {
+    const last = await DB.get('kv', 'last');
+    if (last) {
+      const list = await DB.all('projects');
+      if (!list.length) {
+        const img = await blobToImage(last);
+        await DB.put('projects', { id: newId(), name: defaultName(), created: Date.now(), updated: Date.now(),
+          orig: last, blob: last, edit: null, thumb: makeThumb(img), T: null, ...pick(S, PROJECT_KEYS) });
+      }
+      await DB.del('kv', 'last');
+    }
+  } catch (e) {}
+  renderProjects();
+})();
 
 // ---------- Фильтры ----------
 const overlay = $('overlay');
@@ -90,7 +253,8 @@ function processImage() {
   const ctx = overlay.getContext('2d', { willReadFrequently: true });
   ctx.clearRect(0, 0, w, h);
   ctx.drawImage(srcImage, 0, 0, w, h);
-  if (S.filter === 'original' && S.bright === 0 && S.contrast === 0) { prepared = { w, h }; return; }
+  prepared = { w, h };
+  if (S.filter === 'original' && S.bright === 0 && S.contrast === 0) { drawGrid(ctx, w, h); return; }
 
   const id = ctx.getImageData(0, 0, w, h), d = id.data;
   const b = S.bright * 1.28;
@@ -139,7 +303,20 @@ function processImage() {
     }
   }
   ctx.putImageData(id, 0, 0);
-  prepared = { w, h };
+  drawGrid(ctx, w, h);
+}
+
+// Сетка: N клеток по ширине, клетки квадратные
+function drawGrid(ctx, w, h) {
+  if (!S.gridOn) return;
+  const n = Math.max(2, S.gridN), step = w / n;
+  ctx.save();
+  ctx.strokeStyle = S.gridColor; ctx.lineWidth = Math.max(1, Math.round(w / 500));
+  ctx.beginPath();
+  for (let i = 0; i <= n; i++) { const x = Math.min(w - 0.5, Math.round(i * step) + 0.5); ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+  for (let y = 0; y <= h + 0.5; y += step) { const yy = Math.min(h - 0.5, Math.round(y) + 0.5); ctx.moveTo(0, yy); ctx.lineTo(w, yy); }
+  ctx.stroke();
+  ctx.restore();
 }
 
 // ---------- Положение картинки ----------
@@ -168,7 +345,17 @@ function applyTransform() {
     `translate(${T.x}px, ${T.y}px) rotate(${T.r}rad) scale(${T.s * m}, ${T.s}) translate(${-prepared.w / 2}px, ${-prepared.h / 2}px)`;
   syncSize();
 }
-function saveTransform() { try { localStorage.setItem('td.transform', JSON.stringify(T)); } catch (e) {} }
+// Сохранение текущего проекта (с задержкой, чтобы не писать на каждое движение)
+let saveTimer = 0;
+function saveProject() {
+  if (!cur) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    Object.assign(cur, { T: { ...T }, updated: Date.now() }, pick(S, PROJECT_KEYS));
+    DB.put('projects', cur).catch(() => {});
+  }, 400);
+}
+const saveTransform = saveProject;
 
 // ---------- Жесты ----------
 const pointers = new Map();
@@ -331,36 +518,38 @@ document.addEventListener('visibilitychange', () => {
 function show(id) {
   document.querySelectorAll('.screen').forEach((s) => s.classList.toggle('active', s.id === id));
 }
-$('startBtn').addEventListener('click', async () => {
-  if (!srcImage) return;
+async function openProject(p) {
+  let img;
+  try { img = await blobToImage(p.blob); } catch (e) { flashToast('Не удалось открыть картинку проекта'); return; }
+  cur = p; srcImage = img;
+  for (const k of PROJECT_KEYS) if (p[k] !== undefined) S[k] = p[k];
+  syncSettingsUI();
   try { await document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }); } catch (e) {}
   show('trace');
   processImage();
-  let restored = false;
-  try {
-    const t = JSON.parse(localStorage.getItem('td.transform') || 'null');
-    if (t && localStorage.getItem('td.transformFor') === imgKey()) { Object.assign(T, t); restored = true; }
-  } catch (e) {}
-  if (!restored) fitImage();
-  try { localStorage.setItem('td.transformFor', imgKey()); } catch (e) {}
+  if (p.T) Object.assign(T, p.T); else fitImage();
   applyTransform();
   overlay.style.opacity = S.opacity / 100;
+  overlay.classList.remove('hidden'); $('eyeBtn').classList.remove('off');
   $('opacity').value = S.opacity;
+  p.updated = Date.now(); DB.put('projects', p).catch(() => {});
   await startCamera();
   requestWakeLock();
-});
-function imgKey() { return srcBlob ? `${srcBlob.size}-${srcImage.naturalWidth}x${srcImage.naturalHeight}` : ''; }
+}
 
 $('backBtn').addEventListener('click', () => {
   stopCamera();
   try { wakeLock?.release(); } catch (e) {}
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   setLocked(false);
+  if (cur) { clearTimeout(saveTimer); Object.assign(cur, { T: { ...T }, updated: Date.now() }, pick(S, PROJECT_KEYS));
+    DB.put('projects', cur).catch(() => {}).then(renderProjects); }
+  cur = null;
   show('home');
 });
 
 $('opacity').addEventListener('input', (e) => {
-  S.opacity = +e.target.value; overlay.style.opacity = S.opacity / 100; saveSettings();
+  S.opacity = +e.target.value; overlay.style.opacity = S.opacity / 100; saveSettings(); saveProject();
 });
 $('eyeBtn').addEventListener('click', () => {
   const hidden = overlay.classList.toggle('hidden');
@@ -401,6 +590,7 @@ const sheet = $('settings');
 function syncSettingsUI() {
   document.querySelectorAll('#filterSeg button').forEach((b) => b.classList.toggle('on', b.dataset.f === S.filter));
   sheet.classList.toggle('contour', S.filter === 'contour');
+  $('gridBtn').classList.toggle('on', S.gridOn);
   $('sBright').value = S.bright; $('vBright').textContent = S.bright;
   $('sContrast').value = S.contrast; $('vContrast').textContent = S.contrast;
   $('sThresh').value = S.thresh; $('vThresh').textContent = S.thresh;
@@ -408,10 +598,13 @@ function syncSettingsUI() {
   $('sColor').value = S.color;
   $('sZoomDef').value = S.zoomDef; $('vZoomDef').textContent = '×' + (+S.zoomDef).toFixed(1);
   $('sMirror').checked = S.mirror;
+  $('sGridOn').checked = S.gridOn; sheet.classList.toggle('grid', S.gridOn);
+  $('sGridN').value = S.gridN; $('vGridN').textContent = S.gridN;
+  $('sGridColor').value = S.gridColor;
 }
 let reprocessTimer = 0;
 function changed(reprocess = true) {
-  saveSettings(); syncSettingsUI();
+  saveSettings(); syncSettingsUI(); saveProject();
   if (reprocess && $('trace').classList.contains('active')) {
     clearTimeout(reprocessTimer);
     reprocessTimer = setTimeout(() => { processImage(); applyTransform(); }, 120);
@@ -430,6 +623,10 @@ $('sZoomDef').addEventListener('input', (e) => {
   if (track) { const z = $('zoom'); z.value = Math.max(+z.min, Math.min(+z.max, S.zoomDef)); setZoom(+z.value); }
 });
 $('sMirror').addEventListener('change', (e) => { S.mirror = e.target.checked; changed(false); });
+$('sGridOn').addEventListener('change', (e) => { S.gridOn = e.target.checked; changed(); });
+$('sGridN').addEventListener('input', (e) => { S.gridN = +e.target.value; changed(); });
+$('sGridColor').addEventListener('input', (e) => { S.gridColor = e.target.value; changed(); });
+$('gridBtn').addEventListener('click', () => { S.gridOn = !S.gridOn; changed(); $('gridBtn').classList.toggle('on', S.gridOn); });
 $('resetFilters').addEventListener('click', () => {
   Object.assign(S, { filter: 'original', bright: 0, contrast: 0, thresh: 60, thick: 1, color: '#ff2a2a' });
   changed();

@@ -17,27 +17,49 @@
   <header class="home-head">
     <img src="icon.svg" alt="" class="logo">
     <h1>Обводилка</h1>
-    <p>Выберите картинку, поставьте телефон на штатив над листом и обводите.</p>
+    <p>Новая картинка — обрезать — рисовать на листе под штативом.</p>
   </header>
 
-  <div class="preview" id="preview">
-    <span class="preview-empty">Картинка не выбрана</span>
-    <img id="previewImg" alt="">
-  </div>
-
   <div class="home-actions">
-    <label class="btn big">
+    <label class="btn big primary">
       <input type="file" accept="image/*" capture="environment" id="pickCamera" hidden>
       📷 Сфотографировать
     </label>
-    <label class="btn big">
+    <label class="btn big primary">
       <input type="file" accept="image/*" id="pickGallery" hidden>
       🖼️ Из галереи
     </label>
-    <button class="btn big" id="pasteBtn">📋 Вставить из буфера</button>
-    <button class="btn big primary" id="startBtn" disabled>✏️ Рисовать</button>
+    <button class="btn" id="pasteBtn">📋 Вставить из буфера</button>
   </div>
   <p class="hint" id="homeHint"></p>
+
+  <h2 class="section">Мои рисунки</h2>
+  <p class="hint" id="projectsEmpty">Пока пусто — выберите картинку, и она появится здесь.</p>
+  <div id="projects"></div>
+</section>
+
+<!-- РЕДАКТОР -->
+<section id="editor" class="screen">
+  <div class="ed-top">
+    <button class="tbtn" id="edCancel" title="Отмена">⬅️</button>
+    <div class="ed-title">Обрезка <span id="edSize"></span></div>
+    <button class="btn primary" id="edDone">Готово ✓</button>
+  </div>
+  <div id="edStage">
+    <canvas id="edCanvas"></canvas>
+    <div id="cropBox">
+      <i class="g g1"></i><i class="g g2"></i><i class="g g3"></i><i class="g g4"></i>
+      <span data-h="tl" class="h tl"></span><span data-h="tr" class="h tr"></span>
+      <span data-h="bl" class="h bl"></span><span data-h="br" class="h br"></span>
+      <span data-h="t" class="h t"></span><span data-h="b" class="h b"></span>
+      <span data-h="l" class="h l"></span><span data-h="r" class="h r"></span>
+    </div>
+  </div>
+  <div class="ed-bar">
+    <button class="btn" id="edRotate">⟳ Повернуть</button>
+    <button class="btn" id="edFlip">⇋ Отразить</button>
+    <button class="btn" id="edFull">⛶ Целиком</button>
+  </div>
 </section>
 
 <!-- РЕЖИМ ОБВОДКИ -->
@@ -71,6 +93,7 @@
       <button class="tbtn" id="lockBtn" title="Замок">🔓</button>
       <button class="tbtn" id="torchBtn" title="Фонарик">🔦</button>
       <button class="tbtn" id="camBtn" title="Сменить камеру">🔄</button>
+      <button class="tbtn" id="gridBtn" title="Сетка">#️⃣</button>
       <button class="tbtn" id="resetBtn" title="Сбросить положение">🎯</button>
       <button class="tbtn" id="settingsBtn" title="Настройки">⚙️</button>
       <button class="tbtn" id="hideBarBtn" title="Свернуть панель">⬇️</button>
@@ -106,13 +129,20 @@
     <label class="field contour-only"><span>Цвет линий</span>
       <input type="color" id="sColor" value="#ff2a2a"></label>
 
+    <h3>Сетка</h3>
+    <label class="check"><input type="checkbox" id="sGridOn"> Показать сетку поверх картинки</label>
+    <label class="field grid-only"><span>Клеток по ширине <b id="vGridN"></b></span>
+      <input type="range" id="sGridN" min="2" max="20" value="6"></label>
+    <label class="field grid-only"><span>Цвет сетки</span>
+      <input type="color" id="sGridColor" value="#2a7bff"></label>
+
     <h3>Камера</h3>
     <label class="field"><span>Увеличение по умолчанию <b id="vZoomDef"></b></span>
       <input type="range" id="sZoomDef" min="1" max="5" step="0.1" value="1"></label>
     <label class="check"><input type="checkbox" id="sMirror"> Отразить картинку зеркально</label>
 
     <button class="btn" id="resetFilters">Сбросить фильтры</button>
-    <p class="hint small">Настройки сохраняются на этом телефоне. Картинки никуда не отправляются.</p>
+    <p class="hint small">Фильтры, сетка и положение запоминаются для каждого рисунка. Картинки никуда не отправляются.</p>
   </div>
 </div>
 

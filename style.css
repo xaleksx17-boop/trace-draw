@@ -16,7 +16,7 @@ button, input, label { font: inherit; color: inherit; }
 .screen.active { display: flex; }
 
 /* Главный */
-#home { flex-direction: column; padding: 20px 16px calc(16px + env(safe-area-inset-bottom)); gap: 16px; overflow-y: auto; }
+#home { flex-direction: column; padding: 20px 16px calc(16px + env(safe-area-inset-bottom)); gap: 12px; overflow-y: auto; }
 .home-head { text-align: center; }
 .logo { width: 64px; height: 64px; }
 .home-head h1 { margin: 6px 0 4px; font-size: 26px; }
@@ -28,7 +28,7 @@ button, input, label { font: inherit; color: inherit; }
 .preview.has .preview-empty { display: none; }
 .preview-empty { color: var(--muted); }
 .home-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.home-actions .primary { grid-column: 1 / -1; }
+.home-actions > :last-child { grid-column: 1 / -1; }
 
 .btn { display: flex; align-items: center; justify-content: center; gap: 8px; text-align: center;
   background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; cursor: pointer; }
@@ -105,3 +105,43 @@ input[type=range] { accent-color: var(--accent); height: 32px; }
 .slider span { width: 108px; }
 .slider span b { color: var(--text); font-weight: 600; margin-left: 4px; }
 input[type=range]:disabled { opacity: .35; }
+
+/* Проекты */
+.section { margin: 8px 0 0; font-size: 18px; }
+#projectsEmpty { text-align: left; }
+#projects { display: flex; flex-direction: column; gap: 8px; }
+.proj { display: flex; align-items: center; gap: 12px; background: var(--card); border: 1px solid var(--line);
+  border-radius: 14px; padding: 8px; cursor: pointer; }
+.proj img { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; background: #fff; flex: none; }
+.proj-info { flex: 1; min-width: 0; }
+.proj-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.proj-date { font-size: 13px; color: var(--muted); }
+.proj-acts { display: flex; gap: 2px; flex: none; }
+.proj-acts button { width: 38px; height: 38px; border: none; background: none; font-size: 18px; border-radius: 10px; }
+.proj-acts button:active { background: var(--line); }
+
+/* Редактор */
+#editor { flex-direction: column; background: #000; }
+.ed-top { display: flex; align-items: center; gap: 10px; padding: calc(10px + env(safe-area-inset-top)) 12px 10px; background: var(--bg); }
+.ed-title { flex: 1; font-weight: 600; }
+.ed-title span { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
+.ed-top .btn { padding: 10px 16px; }
+#edStage { flex: 1; position: relative; overflow: hidden; }
+#edCanvas { position: absolute; inset: 0; }
+#cropBox { position: absolute; border: 2px solid #fff; box-shadow: 0 0 0 9999px rgba(0,0,0,.55); touch-action: none; cursor: move; }
+#cropBox .g { position: absolute; background: rgba(255,255,255,.35); pointer-events: none; }
+#cropBox .g1, #cropBox .g2 { top: 0; bottom: 0; width: 1px; }
+#cropBox .g1 { left: 33.33%; } #cropBox .g2 { left: 66.66%; }
+#cropBox .g3, #cropBox .g4 { left: 0; right: 0; height: 1px; }
+#cropBox .g3 { top: 33.33%; } #cropBox .g4 { top: 66.66%; }
+#cropBox .h { position: absolute; width: 34px; height: 34px; touch-action: none; }
+#cropBox .h::after { content: ""; position: absolute; inset: 11px; background: #fff; border-radius: 3px; }
+#cropBox .tl { left: -17px; top: -17px; cursor: nwse-resize; } #cropBox .br { right: -17px; bottom: -17px; cursor: nwse-resize; }
+#cropBox .tr { right: -17px; top: -17px; cursor: nesw-resize; } #cropBox .bl { left: -17px; bottom: -17px; cursor: nesw-resize; }
+#cropBox .t { top: -17px; left: 50%; margin-left: -17px; cursor: ns-resize; } #cropBox .b { bottom: -17px; left: 50%; margin-left: -17px; cursor: ns-resize; }
+#cropBox .l { left: -17px; top: 50%; margin-top: -17px; cursor: ew-resize; } #cropBox .r { right: -17px; top: 50%; margin-top: -17px; cursor: ew-resize; }
+#cropBox .t::after, #cropBox .b::after { inset: 14px 6px; } #cropBox .l::after, #cropBox .r::after { inset: 6px 14px; }
+.ed-bar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: var(--bg); }
+
+.grid-only { display: none; }
+.sheet.grid .grid-only { display: flex; }
