@@ -1,4 +1,5 @@
 'use strict';
+const APP_VERSION = '1.1.1';
 /* Обводилка — v1.1
    Камера во весь экран + картинка поверх с прозрачностью.
    Жесты: 1 палец — сдвиг, 2 пальца — масштаб и поворот. Замок блокирует жесты. */
@@ -635,7 +636,15 @@ syncSettingsUI();
 
 window.addEventListener('resize', () => applyTransform());
 
+$('ver').textContent = 'версия ' + APP_VERSION;
+
 // ---------- Офлайн ----------
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((r) => r.update()).catch(() => {});
+  // пришла новая версия — один раз перезагрузить страницу (только на главном экране)
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloaded || !$('home').classList.contains('active')) return;
+    reloaded = true; location.reload();
+  });
 }
