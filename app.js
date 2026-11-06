@@ -205,29 +205,41 @@ layer.addEventListener('pointercancel', endPtr);
 // ---------- Камера ----------
 const video = $('video');
 let stream = null, track = null, hwZoom = null, torchOn = false, wakeLock = null;
+let camId = null; try { camId = localStorage.getItem('td.camId'); } catch (e) {}
 
-async function startCamera() {
+const caps = () => (track && track.getCapabilities ? track.getCapabilities() : {});
+const isBack = (d) => /back|rear|environment|задн/i.test(d.label);
+
+async function openStream(deviceId) {
+  const video = deviceId
+    ? { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+    : { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } };
+  return navigator.mediaDevices.getUserMedia({ audio: false, video });
+}
+
+async function startCamera(deviceId = camId) {
   stopCamera();
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
-    });
+    try { stream = await openStream(deviceId); }
+    catch (e) { if (!deviceId) throw e; stream = await openStream(null); } // сохранённой камеры больше нет
   } catch (e) {
     flashToast('Нет доступа к камере. Разрешите камеру для этого сайта в настройках браузера.', 5000);
     return;
   }
   video.srcObject = stream;
   track = stream.getVideoTracks()[0];
-  const caps = track.getCapabilities ? track.getCapabilities() : {};
-  hwZoom = caps.zoom ? caps.zoom : null;
+  // возможности камеры (зум, фонарик) браузер отдаёт после старта видео
+  await new Promise((r) => { if (video.readyState >= 2) r(); else video.onloadeddata = () => r(); setTimeout(r, 1500); });
+  await new Promise((r) => setTimeout(r, 300));
+  const c = caps();
+  hwZoom = c.zoom ? c.zoom : null;
   const z = $('zoom');
   if (hwZoom) { z.min = hwZoom.min; z.max = Math.min(hwZoom.max, 10); z.step = hwZoom.step || 0.1; }
   else { z.min = 1; z.max = 5; z.step = 0.05; }
   z.value = Math.max(+z.min, Math.min(+z.max, S.zoomDef));
   setZoom(+z.value);
-  $('torchBtn').classList.toggle('off', !caps.torch);
   torchOn = false; $('torchBtn').classList.remove('on');
+  $('torchBtn').classList.toggle('off', !c.torch);
 }
 function stopCamera() {
   if (stream) stream.getTracks().forEach((t) => t.stop());
@@ -241,14 +253,56 @@ async function setZoom(v) {
 }
 $('zoom').addEventListener('input', (e) => setZoom(+e.target.value));
 
+async function setTorch(on) {
+  try { await track.applyConstraints({ advanced: [{ torch: on }] }); return true; } catch (e) {}
+  try { await track.applyConstraints({ torch: on }); return true; } catch (e) {}
+  return false;
+}
+function rememberCam() {
+  try { camId = track.getSettings().deviceId; localStorage.setItem('td.camId', camId); } catch (e) {}
+}
+
+// Перебрать задние камеры и найти ту, у которой есть фонарик
+async function findTorchCamera() {
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+  const current = track ? track.getSettings().deviceId : null;
+  const order = [...devs.filter(isBack), ...devs.filter((d) => !isBack(d))].filter((d) => d.deviceId !== current);
+  for (const d of order) {
+    await startCamera(d.deviceId);
+    if (caps().torch) { rememberCam(); return true; }
+  }
+  await startCamera(current); // не нашли — вернуть прежнюю
+  return false;
+}
+
 $('torchBtn').addEventListener('click', async () => {
   if (!track) return;
-  const caps = track.getCapabilities ? track.getCapabilities() : {};
-  if (!caps.torch) { flashToast('Фонарик недоступен в этом браузере'); return; }
-  torchOn = !torchOn;
-  try { await track.applyConstraints({ advanced: [{ torch: torchOn }] }); }
-  catch (e) { torchOn = false; flashToast('Не удалось включить фонарик'); }
+  if (torchOn) { await setTorch(false); torchOn = false; $('torchBtn').classList.remove('on'); return; }
+  if (!caps().torch) {
+    flashToast('Ищу камеру с фонариком…', 4000);
+    if (!(await findTorchCamera())) {
+      flashToast('Браузер не даёт управлять фонариком ни на одной камере. Попробуйте Chrome.', 4000);
+      return;
+    }
+  }
+  torchOn = await setTorch(true);
+  if (!torchOn) flashToast('Не удалось включить фонарик');
+  else flashToast('Фонарик включён');
   $('torchBtn').classList.toggle('on', torchOn);
+  $('torchBtn').classList.remove('off');
+});
+
+// Переключение камер по кругу (задние первыми)
+$('camBtn').addEventListener('click', async () => {
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+  if (devs.length < 2) { flashToast('Камера одна'); return; }
+  const list = [...devs.filter(isBack), ...devs.filter((d) => !isBack(d))];
+  const cur = track ? track.getSettings().deviceId : null;
+  const i = list.findIndex((d) => d.deviceId === cur);
+  const next = list[(i + 1) % list.length];
+  await startCamera(next.deviceId);
+  rememberCam();
+  flashToast(`Камера ${list.indexOf(next) + 1} из ${list.length}${caps().torch ? ' · есть фонарик' : ''}`);
 });
 
 async function requestWakeLock() {

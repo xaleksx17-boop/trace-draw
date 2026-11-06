@@ -100,3 +100,5 @@ input[type=range] { accent-color: var(--accent); height: 32px; }
   .row.buttons { flex-wrap: wrap; justify-content: flex-start; }
   .sheet-body { max-width: 520px; margin: 0 auto; }
 }
+.row.buttons { gap: 6px; }
+.row.buttons .tbtn { flex: 1 1 0; width: auto; min-width: 0; max-width: 52px; font-size: 20px; }
