@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#14161a">
+<title>Обводилка</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ГЛАВНЫЙ ЭКРАН -->
+<section id="home" class="screen active">
+  <header class="home-head">
+    <img src="icon.svg" alt="" class="logo">
+    <h1>Обводилка</h1>
+    <p>Выберите картинку, поставьте телефон на штатив над листом и обводите.</p>
+  </header>
+
+  <div class="preview" id="preview">
+    <span class="preview-empty">Картинка не выбрана</span>
+    <img id="previewImg" alt="">
+  </div>
+
+  <div class="home-actions">
+    <label class="btn big">
+      <input type="file" accept="image/*" capture="environment" id="pickCamera" hidden>
+      📷 Сфотографировать
+    </label>
+    <label class="btn big">
+      <input type="file" accept="image/*" id="pickGallery" hidden>
+      🖼️ Из галереи
+    </label>
+    <button class="btn big" id="pasteBtn">📋 Вставить из буфера</button>
+    <button class="btn big primary" id="startBtn" disabled>✏️ Рисовать</button>
+  </div>
+  <p class="hint" id="homeHint"></p>
+</section>
+
+<!-- РЕЖИМ ОБВОДКИ -->
+<section id="trace" class="screen">
+  <div id="stage">
+    <video id="video" autoplay playsinline muted></video>
+    <div id="overlayWrap">
+      <canvas id="overlay"></canvas>
+    </div>
+    <div id="gestureLayer"></div>
+  </div>
+
+  <div id="lockBadge" class="badge">🔒 Заблокировано</div>
+  <div id="toast" class="toast"></div>
+
+  <div id="toolbar">
+    <div class="row sliders">
+      <label class="slider"><span>Прозрачн.</span>
+        <input type="range" id="opacity" min="0" max="100" value="50">
+      </label>
+      <label class="slider" id="zoomRow"><span>Зум</span>
+        <input type="range" id="zoom" min="1" max="5" step="0.05" value="1">
+      </label>
+    </div>
+    <div class="row buttons">
+      <button class="tbtn" id="backBtn" title="Назад">⬅️</button>
+      <button class="tbtn" id="eyeBtn" title="Показать/скрыть картинку">👁️</button>
+      <button class="tbtn" id="lockBtn" title="Замок">🔓</button>
+      <button class="tbtn" id="torchBtn" title="Фонарик">🔦</button>
+      <button class="tbtn" id="resetBtn" title="Сбросить положение">🎯</button>
+      <button class="tbtn" id="settingsBtn" title="Настройки">⚙️</button>
+      <button class="tbtn" id="hideBarBtn" title="Свернуть панель">⬇️</button>
+    </div>
+  </div>
+  <button id="showBarBtn" class="tbtn floating" title="Показать панель">⬆️</button>
+</section>
+
+<!-- НАСТРОЙКИ -->
+<div id="settings" class="sheet">
+  <div class="sheet-body">
+    <div class="sheet-head">
+      <h2>Настройки</h2>
+      <button class="tbtn" id="closeSettings">✖️</button>
+    </div>
+
+    <h3>Фильтр картинки</h3>
+    <div class="seg" id="filterSeg">
+      <button data-f="original">Оригинал</button>
+      <button data-f="gray">Ч/Б</button>
+      <button data-f="contour">Контур</button>
+      <button data-f="invert">Инверсия</button>
+    </div>
+
+    <label class="field"><span>Яркость <b id="vBright"></b></span>
+      <input type="range" id="sBright" min="-100" max="100" value="0"></label>
+    <label class="field"><span>Контраст <b id="vContrast"></b></span>
+      <input type="range" id="sContrast" min="-100" max="100" value="0"></label>
+    <label class="field contour-only"><span>Порог контура <b id="vThresh"></b></span>
+      <input type="range" id="sThresh" min="5" max="200" value="60"></label>
+    <label class="field contour-only"><span>Толщина линий <b id="vThick"></b></span>
+      <input type="range" id="sThick" min="1" max="4" value="1"></label>
+    <label class="field contour-only"><span>Цвет линий</span>
+      <input type="color" id="sColor" value="#ff2a2a"></label>
+
+    <h3>Камера</h3>
+    <label class="field"><span>Увеличение по умолчанию <b id="vZoomDef"></b></span>
+      <input type="range" id="sZoomDef" min="1" max="5" step="0.1" value="1"></label>
+    <label class="check"><input type="checkbox" id="sMirror"> Отразить картинку зеркально</label>
+
+    <button class="btn" id="resetFilters">Сбросить фильтры</button>
+    <p class="hint small">Настройки сохраняются на этом телефоне. Картинки никуда не отправляются.</p>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
