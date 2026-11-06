@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=120">
+<link rel="stylesheet" href="style.css?v=200">
 </head>
 <body>
 
@@ -67,13 +67,16 @@
 <section id="trace" class="screen">
   <div id="stage">
     <video id="video" autoplay playsinline muted></video>
-    <div id="overlayWrap">
-      <canvas id="overlay"></canvas>
+    <div id="anchorWrap">
+      <div id="overlayWrap">
+        <canvas id="overlay"></canvas>
+      </div>
     </div>
     <div id="gestureLayer"></div>
   </div>
 
   <div id="lockBadge" class="badge">🔒 Заблокировано</div>
+  <div id="anchorBadge" class="abadge"></div>
   <div id="recBadge" class="badge rec">⏺ <span id="recTime">00:00</span> <span id="recInfo"></span></div>
   <div id="blocker"><div id="unlockCorner"><span>Держите 2 с, чтобы разблокировать</span></div></div>
   <div id="toast" class="toast"></div>
@@ -96,7 +99,7 @@
       <button class="tbtn" id="lockBtn" title="Замок">🔓</button>
       <button class="tbtn" id="gridBtn" title="Сетка">#️⃣</button>
       <button class="tbtn cam-only" id="recBtn" title="Запись видео">⏺️</button>
-      <button class="tbtn cam-only" id="photoBtn" title="Фото рисунка">📸</button>
+      <button class="tbtn cam-only" id="anchorBtn" title="Привязать к листу по меткам">⚓</button>
       <button class="tbtn cam-only" id="torchBtn" title="Фонарик">🔦</button>
       <button class="tbtn" id="settingsBtn" title="Настройки">⚙️</button>
       <button class="tbtn" id="hideBarBtn" title="Свернуть панель">⬇️</button>
@@ -160,6 +163,12 @@
       <button data-s="30">×30</button>
     </div>
     <label class="check cam-only-h"><input type="checkbox" id="sRecOverlay"> Записывать вместе с картинкой</label>
+    <button class="btn cam-only-h" id="photoBtn">📸 Фото готового рисунка</button>
+
+    <h3 class="cam-only-h">Привязка к листу ⚓</h3>
+    <p class="hint small cam-only-h" style="text-align:left;margin:0 0 8px">Картинка «приклеивается» к листу по 4 меткам в углах и держится на месте, даже если сдвинуть телефон или лист.
+      Распечатайте лист, расставьте картинку и нажмите ⚓ на панели.</p>
+    <a class="btn cam-only-h" href="markers.html" target="_blank" rel="noopener">🖨️ Лист с метками для печати</a>
 
     <h3 class="cam-only-h">Камера</h3>
     <button class="btn cam-only-h" id="camBtn">🔄 Сменить камеру</button>
@@ -172,7 +181,8 @@
   </div>
 </div>
 
-<script src="lib/mp4-muxer.js?v=120"></script>
-<script src="app.js?v=120"></script>
+<script src="lib/mp4-muxer.js?v=200"></script>
+<script src="lib/aruco.js?v=200"></script>
+<script src="app.js?v=200"></script>
 </body>
 </html>

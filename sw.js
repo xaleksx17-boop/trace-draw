@@ -1,6 +1,6 @@
 // Офлайн-кэш Обводилки. При изменении файлов — увеличить версию.
-const CACHE = 'trace-draw-v6';
-const FILES = ['./', 'index.html', 'style.css', 'app.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png', 'lib/mp4-muxer.js'];
+const CACHE = 'trace-draw-v7';
+const FILES = ['./', 'index.html', 'style.css', 'app.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png', 'lib/mp4-muxer.js', 'lib/aruco.js', 'markers.html'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));

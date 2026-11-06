@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Лист с метками — Обводилка</title>
+<style>
+  @page { size: A4 portrait; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #e9e9e9; font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #222; }
+  .bar { max-width: 210mm; margin: 0 auto; padding: 14px 16px; }
+  .bar h1 { font-size: 20px; margin: 0 0 6px; }
+  .bar p { margin: 4px 0; color: #444; }
+  .bar button { margin-top: 10px; padding: 12px 18px; font-size: 16px; border-radius: 12px; border: none; background: #ff7a1a; color: #111; font-weight: 600; }
+  .bar label { display: inline-flex; gap: 6px; align-items: center; margin: 10px 14px 0 0; }
+  .sheet { width: 210mm; height: 297mm; margin: 0 auto 24px; background: #fff; position: relative; box-shadow: 0 2px 12px rgba(0,0,0,.15); }
+  .m { position: absolute; width: var(--ms, 30mm); height: var(--ms, 30mm); }
+  .m svg { width: 100%; height: 100%; display: block; shape-rendering: crispEdges; }
+  .m0 { left: 8mm; top: 8mm; } .m1 { right: 8mm; top: 8mm; }
+  .m2 { right: 8mm; bottom: 8mm; } .m3 { left: 8mm; bottom: 8mm; }
+  .note { position: absolute; left: 0; right: 0; bottom: 3mm; text-align: center; font-size: 8pt; color: #bbb; }
+  @media print {
+    html, body { background: #fff; }
+    .bar { display: none; }
+    .sheet { margin: 0; box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>🖨️ Лист с метками для привязки</h1>
+  <p>Распечатайте лист и рисуйте прямо на нём, между метками. Метки должны быть видны камере — хотя бы две из четырёх.</p>
+  <p>Нет принтера — перерисуйте метку от руки маркером на клетчатой бумаге: чёрный квадрат 6×6 клеток с белыми клетками внутри, как на образце.</p>
+  <label>Размер метки
+    <select id="size"><option value="25">25 мм</option><option value="30" selected>30 мм</option><option value="40">40 мм</option></select>
+  </label>
+  <br><button onclick="print()">Печать / сохранить в PDF</button>
+</div>
+
+<div class="sheet" id="sheet">
+  <div class="m m0"></div><div class="m m1"></div><div class="m m2"></div><div class="m m3"></div>
+  <div class="note">Обводилка · метки ArUco 4×4 № 0–3 · не закрашивайте и не загибайте метки</div>
+</div>
+
+<script src="lib/aruco.js"></script>
+<script>
+  const dict = new AR.Dictionary('ARUCO_4X4_1000');
+  for (let i = 0; i < 4; i++) document.querySelector('.m' + i).innerHTML = dict.generateSVG(i);
+  const sel = document.getElementById('size');
+  const apply = () => document.getElementById('sheet').style.setProperty('--ms', sel.value + 'mm');
+  sel.addEventListener('change', apply); apply();
+</script>
+</body>
+</html>

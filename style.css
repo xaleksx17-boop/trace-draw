@@ -164,3 +164,12 @@ input[type=range]:disabled { opacity: .35; }
   background: rgba(0,0,0,.06); display: flex; align-items: flex-start; justify-content: flex-start; }
 #unlockCorner span { font-size: 10px; color: rgba(0,0,0,.35); padding: 10px 0 0 8px; width: 70px; line-height: 1.2; }
 #unlockCorner.holding { background: rgba(255,122,26,.5); transition: background 2s; }
+
+/* v2: привязка к листу */
+#anchorWrap { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; pointer-events: none; }
+.abadge { position: absolute; top: calc(10px + env(safe-area-inset-top)); right: 10px; padding: 5px 10px; border-radius: 16px;
+  font-size: 13px; background: var(--panel); display: none; }
+.abadge.show { display: block; }
+.abadge.ok { background: rgba(30,140,60,.9); }
+.abadge.lost { background: rgba(200,110,20,.92); }
+a.btn { text-decoration: none; color: var(--text); }

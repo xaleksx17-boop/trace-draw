@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '2.0.0';
 /* Обводилка — v1.1
    Камера во весь экран + картинка поверх с прозрачностью.
    Жесты: 1 палец — сдвиг, 2 пальца — масштаб и поворот. Замок блокирует жесты. */
@@ -356,11 +356,12 @@ function saveProject() {
   if (!cur) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    Object.assign(cur, { T: { ...T }, updated: Date.now() }, pick(S, PROJECT_KEYS));
+    Object.assign(cur, { T: { ...T }, updated: Date.now(), anchor: anchorState() }, pick(S, PROJECT_KEYS));
     DB.put('projects', cur).catch(() => {});
   }, 400);
 }
 const saveTransform = saveProject;
+function anchorState() { return A.on && A.ref ? { ref: A.ref, screen: A.refScreen } : null; }
 
 // ---------- Жесты ----------
 const pointers = new Map();
@@ -378,6 +379,7 @@ function gestureState() {
 }
 layer.addEventListener('pointerdown', (e) => {
   if (locked) { flashToast('🔒 Заблокировано — нажмите замок, чтобы двигать'); return; }
+  if (A.on || A.searching) { flashToast('⚓ Картинка привязана к листу — нажмите ⚓, чтобы двигать'); return; }
   layer.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   gPrev = gestureState();
@@ -542,7 +544,7 @@ async function openProject(p, m = 'camera') {
   p.updated = Date.now(); DB.put('projects', p).catch(() => {});
   requestWakeLock();
   startBlink();
-  if (mode === 'light') { stopCamera(); lightHint(); } else await startCamera();
+  if (mode === 'light') { stopCamera(); lightHint(); stopAnchor(); } else { await startCamera(); restoreAnchor(p); }
 }
 
 $('backBtn').addEventListener('click', async () => {
@@ -553,9 +555,10 @@ $('backBtn').addEventListener('click', async () => {
   try { wakeLock?.release(); } catch (e) {}
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   setLocked(false);
-  if (cur) { clearTimeout(saveTimer); Object.assign(cur, { T: { ...T }, updated: Date.now() }, pick(S, PROJECT_KEYS));
+  if (cur) { clearTimeout(saveTimer); Object.assign(cur, { T: { ...T }, updated: Date.now(), anchor: anchorState() }, pick(S, PROJECT_KEYS));
     DB.put('projects', cur).catch(() => {}).then(renderProjects); }
   cur = null;
+  stopAnchor();
   show('home');
 });
 
@@ -582,6 +585,7 @@ function setLocked(v) {
 }
 $('lockBtn').addEventListener('click', () => setLocked(!locked));
 $('size').addEventListener('input', (e) => {
+  if (A.on) { syncSize(); flashToast('⚓ Сначала снимите привязку'); return; }
   if (locked) { syncSize(); flashToast('Сначала снимите замок'); return; }
   T.s = fitScale() * sliderToSize(+e.target.value);
   applyTransform();
@@ -591,6 +595,7 @@ $('size').addEventListener('change', saveTransform);
 $('vSize').addEventListener('dblclick', () => { if (!locked) { T.s = fitScale(); applyTransform(); saveTransform(); } });
 $('resetBtn').addEventListener('click', () => {
   if (locked) { flashToast('Сначала снимите замок'); return; }
+  if (A.on || A.searching) setAnchor(false);
   fitImage(); applyTransform(); saveTransform();
   sheet.classList.remove('open');
 });
@@ -694,7 +699,7 @@ $('modeBtn').addEventListener('click', async () => {
   mode = mode === 'light' ? 'camera' : 'light';
   applyMode();
   sheet.classList.remove('open');
-  if (mode === 'light') { stopCamera(); lightHint(); } else await startCamera();
+  if (mode === 'light') { stopCamera(); lightHint(); stopAnchor(); } else await startCamera();
 });
 function lightHint() {
   flashToast('💡 Выкрутите яркость экрана на максимум, положите лист на экран и нажмите 🔒', 4500);
@@ -748,6 +753,12 @@ function drawOverlayInto(ctx, W, H, vw, vh) {
   ctx.save();
   ctx.translate(W / 2, H / 2);
   ctx.scale(k / cover, k / cover);
+  if (A.on) { // привязка к листу: аффинная часть гомографии (перспектива на записи не учитывается)
+    const h = A.H;
+    ctx.translate(-innerWidth / 2, -innerHeight / 2);
+    ctx.transform(h[0] / h[8], h[3] / h[8], h[1] / h[8], h[4] / h[8], h[2] / h[8], h[5] / h[8]);
+    ctx.translate(innerWidth / 2, innerHeight / 2);
+  }
   ctx.translate(T.x, T.y); ctx.rotate(T.r); ctx.scale(T.s * m, T.s);
   ctx.translate(-prepared.w / 2, -prepared.h / 2);
   ctx.globalAlpha = S.opacity / 100;
@@ -846,6 +857,176 @@ $('recBtn').addEventListener('click', () => (rec ? stopRec() : startRec()));
     if (r) { const b = await r.blob(); await c.delete('shared-image'); openEditor(b, null); }
   } catch (e) {}
 })();
+
+
+// ---------- v2: привязка картинки к листу по меткам ArUco ----------
+// На листе 4 метки (ArUco 4×4, № 0–3). При привязке запоминаем, где метки были на экране;
+// дальше каждый кадр ищем их снова и считаем преобразование «тогда → сейчас» (гомографию),
+// которое применяется ко всей картинке. Сдвинули телефон или лист — картинка едет вместе с листом.
+const anchorWrap = $('anchorWrap');
+const A = { on: false, searching: false, ref: null, H: [1, 0, 0, 0, 1, 0, 0, 0, 1], timer: 0, seen: 0, stable: 0 };
+let det = null;
+function detector() {
+  if (det || !window.AR) return det;
+  det = new AR.Detector({ dictionaryName: 'ARUCO_4X4_1000' });
+  // оставляем только метки № 0–3: меньше ложных срабатываний и больше допуск на ошибки
+  det.dictionary.codeList = det.dictionary.codeList.slice(0, 4);
+  det.dictionary.tau = Math.max(1, Math.floor((det.dictionary._calculateTau() - 1) / 2));
+  return det;
+}
+const dCanvas = document.createElement('canvas');
+const dCtx = dCanvas.getContext('2d', { willReadFrequently: true });
+
+// Найти метки на текущем кадре; углы — в координатах экрана
+function detectMarkers() {
+  const d = detector();
+  if (!d || !video.videoWidth) return [];
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const k = Math.min(1, 720 / Math.max(vw, vh));
+  const dw = Math.round(vw * k), dh = Math.round(vh * k);
+  if (dCanvas.width !== dw || dCanvas.height !== dh) { dCanvas.width = dw; dCanvas.height = dh; }
+  dCtx.drawImage(video, 0, 0, dw, dh);
+  let ms;
+  try { ms = d.detect(dCtx.getImageData(0, 0, dw, dh)); } catch (e) { return []; }
+  const cssZoom = hwZoom ? 1 : Math.max(1, +$('zoom').value || 1);
+  const cover = Math.max(innerWidth / vw, innerHeight / vh) * cssZoom;
+  const toScr = (p) => ({ x: innerWidth / 2 + (p.x / k - vw / 2) * cover, y: innerHeight / 2 + (p.y / k - vh / 2) * cover });
+  const seen = new Set();
+  return ms.filter((m) => m.id >= 0 && m.id < 4 && !seen.has(m.id) && seen.add(m.id))
+    .map((m) => ({ id: m.id, pts: m.corners.map(toScr) }));
+}
+
+// Решение СЛАУ методом Гаусса (для 8×8)
+function solve(M, b) {
+  const n = b.length;
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    if (Math.abs(M[p][c]) < 1e-12) return null;
+    [M[c], M[p]] = [M[p], M[c]]; [b[c], b[p]] = [b[p], b[c]];
+    for (let r = c + 1; r < n; r++) {
+      const f = M[r][c] / M[c][c];
+      for (let j = c; j < n; j++) M[r][j] -= f * M[c][j];
+      b[r] -= f * b[c];
+    }
+  }
+  const x = new Array(n);
+  for (let r = n - 1; r >= 0; r--) {
+    let s = b[r];
+    for (let j = r + 1; j < n; j++) s -= M[r][j] * x[j];
+    x[r] = s / M[r][r];
+  }
+  return x;
+}
+// Гомография по ≥4 парам точек (метод наименьших квадратов, h8 = 1), с нормировкой координат
+function homography(src, dst) {
+  const s = 1 / Math.max(innerWidth, innerHeight);
+  const M = Array.from({ length: 8 }, () => new Array(8).fill(0)), b = new Array(8).fill(0);
+  for (let i = 0; i < src.length; i++) {
+    const x = src[i].x * s, y = src[i].y * s, u = dst[i].x * s, v = dst[i].y * s;
+    const rows = [[x, y, 1, 0, 0, 0, -u * x, -u * y, u], [0, 0, 0, x, y, 1, -v * x, -v * y, v]];
+    for (const r of rows) for (let a = 0; a < 8; a++) { b[a] += r[a] * r[8]; for (let c = 0; c < 8; c++) M[a][c] += r[a] * r[c]; }
+  }
+  const h = solve(M, b);
+  if (!h) return null;
+  // вернуть из нормированных координат: H = S⁻¹·Hn·S
+  return [h[0], h[1], h[2] / s, h[3], h[4], h[5] / s, h[6] * s, h[7] * s, 1];
+}
+// Подобие (сдвиг + поворот + масштаб), когда видна только одна метка
+function similarity(src, dst) {
+  const n = src.length;
+  let mx = 0, my = 0, ux = 0, uy = 0;
+  for (let i = 0; i < n; i++) { mx += src[i].x; my += src[i].y; ux += dst[i].x; uy += dst[i].y; }
+  mx /= n; my /= n; ux /= n; uy /= n;
+  let sa = 0, sb = 0, sd = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = src[i].x - mx, dy = src[i].y - my, ex = dst[i].x - ux, ey = dst[i].y - uy;
+    sa += dx * ex + dy * ey; sb += dx * ey - dy * ex; sd += dx * dx + dy * dy;
+  }
+  if (sd < 1e-6) return null;
+  const a = sa / sd, b = sb / sd;
+  return [a, -b, ux - (a * mx - b * my), b, a, uy - (b * mx + a * my), 0, 0, 1];
+}
+function applyAnchor() {
+  const h = A.H;
+  anchorWrap.style.transform = A.on
+    ? `matrix3d(${h[0]},${h[3]},0,${h[6]}, ${h[1]},${h[4]},0,${h[7]}, 0,0,1,0, ${h[2]},${h[5]},0,${h[8]})` : '';
+}
+function badge(text, cls) {
+  const b = $('anchorBadge');
+  b.textContent = text; b.className = 'abadge' + (text ? ' show ' + (cls || '') : '');
+}
+
+function anchorTick() {
+  if (!track || mode !== 'camera' || !$('trace').classList.contains('active')) return;
+  const found = detectMarkers();
+  if (A.searching) {
+    badge(`⚓ Ищу метки… найдено ${found.length} из 4`, found.length >= 2 ? 'ok' : 'lost');
+    A.stable = found.length >= 2 ? A.stable + 1 : 0;
+    if (A.stable >= 4) { // метки устойчиво видны ~0,5 с — запоминаем
+      A.ref = Object.fromEntries(found.map((m) => [m.id, m.pts]));
+      A.refScreen = [innerWidth, innerHeight];
+      A.H = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+      A.searching = false; A.on = true;
+      $('anchorBtn').classList.add('on');
+      flashToast(`⚓ Картинка привязана к листу (меток: ${found.length})`);
+      saveProject();
+    }
+    return;
+  }
+  if (!A.on) return;
+  const src = [], dst = [];
+  for (const m of found) {
+    const r = A.ref[m.id];
+    if (!r) continue;
+    for (let i = 0; i < 4; i++) { src.push(r[i]); dst.push(m.pts[i]); }
+  }
+  const n = src.length / 4;
+  if (!n) { badge('⚓ Метки не видны — картинка стоит на месте', 'lost'); return; }
+  const Hn = n >= 2 ? homography(src, dst) : similarity(src, dst);
+  if (!Hn) return;
+  // сглаживание, чтобы картинка не дрожала
+  const a = 0.55;
+  A.H = A.H.map((v, i) => v + (Hn[i] - v) * a);
+  applyAnchor();
+  badge(`⚓ ${n} из 4`, 'ok');
+}
+function startAnchorLoop() {
+  clearInterval(A.timer);
+  if (A.on || A.searching) A.timer = setInterval(anchorTick, 110);
+}
+function setAnchor(on) {
+  if (on) {
+    if (mode !== 'camera' || !track) { flashToast('Привязка работает только с камерой'); return; }
+    if (!detector()) { flashToast('Не загрузился модуль распознавания меток'); return; }
+    if (locked) setLocked(false);
+    A.searching = true; A.on = false; A.stable = 0; A.H = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    applyAnchor();
+    flashToast('Наведите камеру на лист с метками — нужно хотя бы 2 из 4', 3000);
+  } else {
+    A.searching = false; A.on = false; A.ref = null; A.H = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    applyAnchor(); badge('');
+    $('anchorBtn').classList.remove('on');
+    saveProject();
+  }
+  startAnchorLoop();
+}
+$('anchorBtn').addEventListener('click', () => {
+  if (A.on || A.searching) { setAnchor(false); flashToast('Привязка снята'); } else setAnchor(true);
+});
+// при открытии рисунка — восстановить привязку, если экран тот же
+function restoreAnchor(p) {
+  A.searching = false; A.H = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  const ok = p.anchor && p.anchor.screen && p.anchor.screen[0] === innerWidth && p.anchor.screen[1] === innerHeight && mode === 'camera';
+  A.on = !!ok; A.ref = ok ? p.anchor.ref : null; A.refScreen = ok ? p.anchor.screen : null;
+  $('anchorBtn').classList.toggle('on', A.on);
+  applyAnchor(); badge(A.on ? '⚓ Ищу метки…' : '', 'lost');
+  startAnchorLoop();
+}
+function stopAnchor() {
+  clearInterval(A.timer); A.searching = false; A.on = false; A.ref = null;
+  A.H = [1, 0, 0, 0, 1, 0, 0, 0, 1]; applyAnchor(); badge(''); $('anchorBtn').classList.remove('on');
+}
 
 $('ver').textContent = 'версия ' + APP_VERSION;
 
