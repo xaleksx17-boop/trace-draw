@@ -102,3 +102,6 @@ input[type=range] { accent-color: var(--accent); height: 32px; }
 }
 .row.buttons { gap: 6px; }
 .row.buttons .tbtn { flex: 1 1 0; width: auto; min-width: 0; max-width: 52px; font-size: 20px; }
+.slider span { width: 108px; }
+.slider span b { color: var(--text); font-weight: 600; margin-left: 4px; }
+input[type=range]:disabled { opacity: .35; }

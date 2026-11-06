@@ -144,17 +144,29 @@ function processImage() {
 
 // ---------- Положение картинки ----------
 const T = { x: 0, y: 0, s: 1, r: 0 };
+function fitScale() {
+  return prepared ? Math.min(innerWidth / prepared.w, innerHeight / prepared.h) * 0.9 : 1;
+}
 function fitImage() {
   if (!prepared) return;
-  const vw = innerWidth, vh = innerHeight;
-  T.s = Math.min(vw / prepared.w, vh / prepared.h) * 0.9;
+  T.s = fitScale();
   T.x = 0; T.y = 0; T.r = 0;
+}
+// Ползунок «Размер»: 10%…1000% от размера «по экрану», логарифмическая шкала (середина = 100%)
+const SIZE_MIN = 0.1, SIZE_MAX = 10;
+function sizeToSlider(k) { return Math.round(1000 * Math.log(k / SIZE_MIN) / Math.log(SIZE_MAX / SIZE_MIN)); }
+function sliderToSize(v) { return SIZE_MIN * Math.pow(SIZE_MAX / SIZE_MIN, v / 1000); }
+function syncSize() {
+  const k = T.s / fitScale();
+  $('size').value = sizeToSlider(Math.max(SIZE_MIN, Math.min(SIZE_MAX, k)));
+  $('vSize').textContent = Math.round(k * 100) + '%';
 }
 function applyTransform() {
   if (!prepared) return;
   const m = S.mirror ? -1 : 1;
   overlay.style.transform =
     `translate(${T.x}px, ${T.y}px) rotate(${T.r}rad) scale(${T.s * m}, ${T.s}) translate(${-prepared.w / 2}px, ${-prepared.h / 2}px)`;
+  syncSize();
 }
 function saveTransform() { try { localStorage.setItem('td.transform', JSON.stringify(T)); } catch (e) {} }
 
@@ -359,9 +371,18 @@ function setLocked(v) {
   $('lockBtn').textContent = v ? '🔒' : '🔓';
   $('lockBtn').classList.toggle('on', v);
   $('lockBadge').classList.toggle('show', v);
+  $('size').disabled = v;
   pointers.clear(); gPrev = null;
 }
 $('lockBtn').addEventListener('click', () => setLocked(!locked));
+$('size').addEventListener('input', (e) => {
+  if (locked) { syncSize(); flashToast('Сначала снимите замок'); return; }
+  T.s = fitScale() * sliderToSize(+e.target.value);
+  applyTransform();
+});
+$('size').addEventListener('change', saveTransform);
+// двойной тап по проценту — вернуть 100%
+$('vSize').addEventListener('dblclick', () => { if (!locked) { T.s = fitScale(); applyTransform(); saveTransform(); } });
 $('resetBtn').addEventListener('click', () => {
   if (locked) { flashToast('Сначала снимите замок'); return; }
   fitImage(); applyTransform(); saveTransform();
