@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.0.1';
 /* Обводилка — v1.1
    Камера во весь экран + картинка поверх с прозрачностью.
    Жесты: 1 палец — сдвиг, 2 пальца — масштаб и поворот. Замок блокирует жесты. */
@@ -1027,6 +1027,55 @@ function stopAnchor() {
   clearInterval(A.timer); A.searching = false; A.on = false; A.ref = null;
   A.H = [1, 0, 0, 0, 1, 0, 0, 0, 1]; applyAnchor(); badge(''); $('anchorBtn').classList.remove('on');
 }
+
+
+// ---------- Панель кнопок: бесконечная прокрутка по кругу ----------
+// Кнопки идут тремя одинаковыми наборами; когда прокрутка уходит в крайний набор,
+// незаметно перескакиваем в средний. Копии повторяют вид оригиналов и нажимают их.
+(function loopToolbar() {
+  const sc = $('tbScroll'), trk = $('tbTrack');
+  const originals = [...trk.children];
+  const mk = () => originals.map((o) => {
+    const c = o.cloneNode(true);
+    c.removeAttribute('id'); c.classList.add('clone'); c.dataset.for = o.id;
+    c.addEventListener('click', () => o.click());
+    return c;
+  });
+  const before = mk(), after = mk();
+  before.forEach((c) => trk.insertBefore(c, originals[0]));
+  after.forEach((c) => trk.appendChild(c));
+  const sync = (o) => {
+    for (const c of trk.querySelectorAll(`.clone[data-for="${o.id}"]`)) {
+      c.className = o.className + ' clone'; c.textContent = o.textContent; c.disabled = o.disabled;
+    }
+  };
+  const mo = new MutationObserver((list) => {
+    const set = new Set(list.map((m) => (m.target.nodeType === 1 ? m.target : m.target.parentElement).closest('button')));
+    set.forEach((o) => o && o.id && sync(o));
+  });
+  originals.forEach((o) => mo.observe(o, { attributes: true, childList: true, characterData: true, subtree: true }));
+
+  let setW = 0;
+  function measure() {
+    sc.classList.remove('static');
+    const vis = originals.filter((o) => o.offsetParent !== null);
+    if (!vis.length) return;
+    const gap = parseFloat(getComputedStyle(trk).columnGap) || 0;
+    setW = vis.reduce((w, o) => w + o.offsetWidth + gap, 0);
+    if (setW <= sc.clientWidth + 1) { sc.classList.add('static'); sc.scrollLeft = 0; setW = 0; return; }
+    sc.scrollLeft = setW + (sc.scrollLeft % setW);
+  }
+  sc.addEventListener('scroll', () => {
+    if (!setW) return;
+    if (sc.scrollLeft < setW * 0.5) sc.scrollLeft += setW;
+    else if (sc.scrollLeft > setW * 1.5) sc.scrollLeft -= setW;
+  }, { passive: true });
+  window.addEventListener('resize', measure);
+  // пересчитать, когда панель показалась или сменился режим (часть кнопок скрывается)
+  new MutationObserver(measure).observe($('trace'), { attributes: true, attributeFilter: ['class'] });
+  new MutationObserver(measure).observe($('toolbar'), { attributes: true, attributeFilter: ['class'] });
+  window.toolbarMeasure = measure;
+})();
 
 $('ver').textContent = 'версия ' + APP_VERSION;
 

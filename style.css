@@ -173,3 +173,15 @@ input[type=range]:disabled { opacity: .35; }
 .abadge.ok { background: rgba(30,140,60,.9); }
 .abadge.lost { background: rgba(200,110,20,.92); }
 a.btn { text-decoration: none; color: var(--text); }
+
+/* Панель кнопок: прокрутка вбок по кругу */
+.row.buttons { align-items: center; }
+.row.buttons > #backBtn { flex: none; width: 48px; max-width: none; }
+#tbScroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+          mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%); }
+#tbScroll::-webkit-scrollbar { display: none; }
+#tbTrack { display: flex; gap: 6px; width: max-content; padding: 0 4px; }
+#tbTrack .tbtn { flex: none; width: 48px; max-width: none; font-size: 22px; }
+#tbScroll.static #tbTrack .clone { display: none; }
+@media (orientation: landscape) { .row.buttons { flex-wrap: nowrap; } }

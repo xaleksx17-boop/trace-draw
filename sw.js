@@ -1,5 +1,5 @@
 // Офлайн-кэш Обводилки. При изменении файлов — увеличить версию.
-const CACHE = 'trace-draw-v7';
+const CACHE = 'trace-draw-v8';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png', 'lib/mp4-muxer.js', 'lib/aruco.js', 'markers.html'];
 
 self.addEventListener('install', (e) => {

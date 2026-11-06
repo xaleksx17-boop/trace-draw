@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=200">
+<link rel="stylesheet" href="style.css?v=201">
 </head>
 <body>
 
@@ -95,14 +95,21 @@
     </div>
     <div class="row buttons">
       <button class="tbtn" id="backBtn" title="Назад">⬅️</button>
-      <button class="tbtn" id="eyeBtn" title="Показать/скрыть картинку">👁️</button>
-      <button class="tbtn" id="lockBtn" title="Замок">🔓</button>
-      <button class="tbtn" id="gridBtn" title="Сетка">#️⃣</button>
-      <button class="tbtn cam-only" id="recBtn" title="Запись видео">⏺️</button>
-      <button class="tbtn cam-only" id="anchorBtn" title="Привязать к листу по меткам">⚓</button>
-      <button class="tbtn cam-only" id="torchBtn" title="Фонарик">🔦</button>
-      <button class="tbtn" id="settingsBtn" title="Настройки">⚙️</button>
-      <button class="tbtn" id="hideBarBtn" title="Свернуть панель">⬇️</button>
+      <div id="tbScroll">
+        <div id="tbTrack">
+          <button class="tbtn" id="eyeBtn" title="Показать/скрыть картинку">👁️</button>
+          <button class="tbtn" id="lockBtn" title="Замок">🔓</button>
+          <button class="tbtn" id="gridBtn" title="Сетка">#️⃣</button>
+          <button class="tbtn cam-only" id="anchorBtn" title="Привязать к листу по меткам">⚓</button>
+          <button class="tbtn cam-only" id="recBtn" title="Запись видео">⏺️</button>
+          <button class="tbtn cam-only" id="photoBtn" title="Фото готового рисунка">📸</button>
+          <button class="tbtn cam-only" id="torchBtn" title="Фонарик">🔦</button>
+          <button class="tbtn cam-only" id="camBtn" title="Сменить камеру">🔄</button>
+          <button class="tbtn" id="resetBtn" title="Картинку в центр">🎯</button>
+          <button class="tbtn" id="settingsBtn" title="Настройки">⚙️</button>
+          <button class="tbtn" id="hideBarBtn" title="Свернуть панель">⬇️</button>
+        </div>
+      </div>
     </div>
   </div>
   <button id="showBarBtn" class="tbtn floating" title="Показать панель">⬆️</button>
@@ -143,10 +150,7 @@
       <input type="color" id="sGridColor" value="#2a7bff"></label>
 
     <h3>Режим</h3>
-    <div class="two">
-      <button class="btn" id="modeBtn">💡 Световой стол</button>
-      <button class="btn" id="resetBtn">🎯 Картинку в центр</button>
-    </div>
+    <button class="btn" id="modeBtn">💡 Световой стол</button>
 
     <h3>Мигание картинки</h3>
     <label class="check"><input type="checkbox" id="sBlinkOn"> Периодически скрывать картинку, чтобы видеть свой рисунок</label>
@@ -163,7 +167,6 @@
       <button data-s="30">×30</button>
     </div>
     <label class="check cam-only-h"><input type="checkbox" id="sRecOverlay"> Записывать вместе с картинкой</label>
-    <button class="btn cam-only-h" id="photoBtn">📸 Фото готового рисунка</button>
 
     <h3 class="cam-only-h">Привязка к листу ⚓</h3>
     <p class="hint small cam-only-h" style="text-align:left;margin:0 0 8px">Картинка «приклеивается» к листу по 4 меткам в углах и держится на месте, даже если сдвинуть телефон или лист.
@@ -171,7 +174,6 @@
     <a class="btn cam-only-h" href="markers.html" target="_blank" rel="noopener">🖨️ Лист с метками для печати</a>
 
     <h3 class="cam-only-h">Камера</h3>
-    <button class="btn cam-only-h" id="camBtn">🔄 Сменить камеру</button>
     <label class="field"><span>Увеличение по умолчанию <b id="vZoomDef"></b></span>
       <input type="range" id="sZoomDef" min="1" max="5" step="0.1" value="1"></label>
     <label class="check"><input type="checkbox" id="sMirror"> Отразить картинку зеркально</label>
@@ -181,8 +183,8 @@
   </div>
 </div>
 
-<script src="lib/mp4-muxer.js?v=200"></script>
-<script src="lib/aruco.js?v=200"></script>
-<script src="app.js?v=200"></script>
+<script src="lib/mp4-muxer.js?v=201"></script>
+<script src="lib/aruco.js?v=201"></script>
+<script src="app.js?v=201"></script>
 </body>
 </html>
